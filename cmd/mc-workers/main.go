@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
 	"github.com/glendc/data-ingestion-challenge/pkg/rpc"
 )
@@ -19,4 +21,9 @@ func main() {
 		log.Infof(" [*] Waiting for logs. To exit press CTRL+C")
 		<-forever
 	})
+}
+
+func init() {
+	flag.Parse()
+	log.Init()
 }

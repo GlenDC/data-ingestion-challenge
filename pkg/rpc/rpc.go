@@ -126,7 +126,3 @@ func Consumer(cfg *ConsumerConfig, cb func(DeliveryChannel)) {
 		cb(consumer)
 	})
 }
-
-func init() {
-	flag.Parse()
-}

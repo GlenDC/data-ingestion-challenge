@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	debug = flag.Bool("debug", false, "allow for verbose logging")
+	debug = flag.Bool("debug", false, "allow for verbose logging (DEBUG env can be used as well)")
 )
 
 // Infof logs info messages in verbose mode
@@ -31,16 +31,15 @@ func Errorf(format string, args ...interface{}) {
 	log.Fatalf(message("ERROR", format), args...)
 }
 
+// Init configures the log
+func Init() {
+	*debug = *debug || (os.Getenv("DEBUG") != "")
+}
+
 // message creates a informational log message
 func message(level, message string) string {
 	// collect fileName and lineNumber of callee
 	_, fn, ln, _ := runtime.Caller(2)
 	// return formatted format string
 	return fmt.Sprintf("[%s] {%s:%d} %s", level, fn, ln, message)
-}
-
-// config debug mode
-func init() {
-	flag.Parse()
-	*debug = *debug || os.Getenv("DEBUG") != ""
 }

@@ -29,6 +29,8 @@ type outputEvent struct {
 }
 
 func processRequest(r *http.Request) (*outputEvent, error) {
+	log.Infof("processing event and preparing it for dispatch")
+
 	// validate content type
 	if ct := r.Header.Get("Content-Type"); ct != "application/json" {
 		return nil, fmt.Errorf("invalid content-type %q, expected application/json", ct)
@@ -66,6 +68,8 @@ func main() {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+
+			log.Infof("event dispatched")
 		})
 
 		log.Infof("Metric Collector Service listening to port %d", *port)
@@ -75,4 +79,5 @@ func main() {
 
 func init() {
 	flag.Parse()
+	log.Init()
 }
