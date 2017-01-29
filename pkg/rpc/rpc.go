@@ -2,7 +2,9 @@ package rpc
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
+	"fmt"
 
 	"github.com/streadway/amqp"
 
@@ -113,7 +115,7 @@ func Consumer(cfg *ConsumerConfig, cb func(DeliveryChannel)) {
 		consumer, err := ch.Consume(
 			q.Name, // queue
 			"",     // consumer
-			true,   // auto-ack
+			false,  // auto-ack
 			false,  // exclusive
 			false,  // no-local
 			false,  // no-wait
@@ -125,4 +127,19 @@ func Consumer(cfg *ConsumerConfig, cb func(DeliveryChannel)) {
 
 		cb(consumer)
 	})
+}
+
+// Consume an AMQP delivery, rejecting automatically when an error occurs
+func Consume(data amqp.Delivery, out interface{}) error {
+	if data.ContentType != "application/json" {
+		data.Reject(false) // no requeue needed, as its content type is not recognised
+		return errors.New("invalid content type")
+	}
+
+	if err := json.Unmarshal(data.Body, out); err != nil {
+		data.Reject(false) // no requeue needed, couldn't unpack value
+		return fmt.Errorf("couldn't unpack delivery: %q", err)
+	}
+
+	return nil
 }
