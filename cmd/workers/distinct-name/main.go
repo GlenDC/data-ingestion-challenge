@@ -9,31 +9,30 @@ import (
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
 	"github.com/glendc/data-ingestion-challenge/pkg/rpc"
 
-	"gopkg.in/pg.v5"
+	"gopkg.in/redis.v5"
 )
 
 // cmd redis-specific flags
 var (
-	pgUser     = flag.String("user", "postgres", "postgres user")
-	pgPassword = flag.String("password", "", "postgres password")
-	pgDatabase = flag.String("db", "postgres", "postgres database")
-	pgTable    = flag.String("table", "ftues", "postgres table to use to store ftue events")
+	redisAddress  = flag.String("address", "localhost:6379", "redis instance address")
+	redisPassword = flag.String("password", "", "redis instance password")
+	redisDB       = flag.Int("db", 0, "redis instance db")
 )
 
 // event struct as this worker expects it
-type ftue struct {
-	Username *string
-	Date     *time.Time
+type dailyEvent struct {
+	Username *string    `json:"username"`
+	Metric   *string    `json:"metric"`
+	Date     *time.Time `json:"date"`
 }
 
-func (e *ftue) String() string {
-	return fmt.Sprintf("%s<%s %s>", *pgTable, *e.Username, e.Date.String())
-}
-
-// Validate the ftue event
-func (e *ftue) Validate() error {
+// Validate the daily event
+func (e *dailyEvent) Validate() error {
 	if e.Username == nil {
 		return errors.New("required username property not given")
+	}
+	if e.Metric == nil {
+		return errors.New("required metric property not given")
 	}
 	if e.Date == nil {
 		return errors.New("required date property not given")
@@ -42,48 +41,54 @@ func (e *ftue) Validate() error {
 	return nil
 }
 
-// create a new postgres runtime client
+// Key returns the daily event data as a key
+// using the format: MM.DD.<METRIC>.<USERNAME>
+func (e *dailyEvent) Key() string {
+	return fmt.Sprintf("%02d.%02d.%s.%s",
+		e.Date.Month(), e.Date.Day(), *e.Username, *e.Metric)
+}
+
+// create a new redis runtime client
 func newRuntime() (*runtime, error) {
-	db := pg.Connect(&pg.Options{
-		User:     *pgUser,
-		Password: *pgPassword,
-		Database: *pgDatabase,
+	client := redis.NewClient(&redis.Options{
+		Addr:     *redisAddress,
+		Password: *redisPassword,
+		DB:       *redisDB,
 	})
 
-	q := fmt.Sprintf(
-		`CREATE TABLE IF NOT EXISTS %s (username text unique, date timestamptz)`,
-		*pgTable)
-	if _, err := db.Exec(q); err != nil {
+	if _, err := client.Ping().Result(); err != nil {
 		return nil, err
 	}
 
 	return &runtime{
-		db: db,
+		client: client,
 	}, nil
 }
 
 type runtime struct {
-	db *pg.DB
+	client *redis.Client
 }
 
-// Record ftue into Postgres
-func (rt *runtime) Record(event *ftue) error {
-	_, err := rt.db.Model(event).OnConflict("(username) DO NOTHING").Insert()
-	return err
+// Record a daily event into Redis, storing it up to 30 days
+func (rt *runtime) Record(event *dailyEvent) error {
+	key := event.Key()
+	log.Infof("incrementing counter of %q", key)
+	cmd := rt.client.Incr(key)
+	return cmd.Err()
 }
 
 func main() {
 	rt, err := newRuntime()
 	if err != nil {
-		log.Errorf("couldn't create postgres runtime: %q", err)
+		log.Errorf("couldn't create redis runtime: %q", err)
 	}
 
-	cfg := rpc.NewConsumerConfig().WithName("ftue")
+	cfg := rpc.NewConsumerConfig().WithName("distinctName")
 	rpc.Consumer(cfg, func(ch rpc.DeliveryChannel) {
 		forever := make(chan bool)
 
 		go func() {
-			var event ftue
+			var event dailyEvent
 			var err error
 
 			for d := range ch {
@@ -112,7 +117,7 @@ func main() {
 			}
 		}()
 
-		log.Infof("Tracking hourly distinct events. To exit press CTRL+C")
+		log.Infof("Tracking daily distinct events. To exit press CTRL+C")
 		<-forever
 	})
 }

@@ -39,7 +39,7 @@ func main() {
 			*mgoCollection, *mgoDatabase)
 	}
 
-	cfg := rpc.NewConsumerConfig().WithName("hourly")
+	cfg := rpc.NewConsumerConfig().WithName("hourlyLog")
 	rpc.Consumer(cfg, func(ch rpc.DeliveryChannel) {
 		forever := make(chan bool)
 
