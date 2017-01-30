@@ -68,10 +68,50 @@ type runtime struct {
 	db *pg.DB
 }
 
-// Record ftue into Postgres
-func (rt *runtime) Record(event *ftue) error {
-	_, err := rt.db.Model(event).OnConflict("(username) DO NOTHING").Insert()
-	return err
+func (rt *runtime) Consume(raw []byte) *rpc.ConsumeError {
+	var event ftue
+	// try to unpack raw data as a daily event
+	if err := rpc.UnmarshalConsumption(raw, &event); err != nil {
+		return err
+	}
+
+	// validate data
+	if err := event.Validate(); err != nil {
+		// requeue is not required as this data is not valid
+		return rpc.NewConsumeError(err, false)
+	}
+
+	inserted, err := rt.record(&event)
+	if err != nil {
+		// requeue is required as this is a mistake on our part
+		// perhaps another accountName worker can handle this
+		// or we can try again later
+		return rpc.NewConsumeError(err, true)
+	}
+
+	if inserted {
+		log.Infof("recorded first time event for %q", *event.Username)
+	}
+
+	return nil
+}
+
+func (rt *runtime) Close() error {
+	return rt.db.Close()
+}
+
+// record ftue into Postgres
+// there is only one record inserted per user,
+// which is the first event that gets recorded for that user.
+// After that nothing will be inserted and the returned boolean will be false.
+func (rt *runtime) record(event *ftue) (bool, error) {
+	resp, err := rt.db.Model(event).OnConflict("(username) DO NOTHING").Insert()
+	if err != nil {
+		return false, err
+	}
+
+	inserted := resp.RowsAffected() > 0
+	return inserted, nil
 }
 
 func main() {
@@ -79,44 +119,17 @@ func main() {
 	if err != nil {
 		log.Errorf("couldn't create postgres runtime: %q", err)
 	}
+	defer rt.Close()
 
-	cfg := rpc.NewConsumerConfig().WithName("accountName")
-	rpc.Consumer(cfg, func(ch rpc.DeliveryChannel) {
-		forever := make(chan bool)
+	cfg := rpc.NewAMQPConsConfig().WithName("accountName")
+	consumer, err := rpc.NewAMQPConsumer(cfg)
+	if err != nil {
+		log.Errorf("couldn't create consumer: %q", err)
+	}
+	defer consumer.Close()
 
-		go func() {
-			var event ftue
-			var err error
-
-			for d := range ch {
-				// process delivery
-				if err = rpc.Consume(d, &event); err != nil {
-					log.Warningf("event was rejected: %q", err)
-					continue
-				}
-
-				if err = event.Validate(); err != nil {
-					log.Warningf("event was rejected: %q", err)
-					d.Reject(false) // delete delivery as its payload is invalid
-					continue
-				}
-
-				// track event and acknowledge if all is OK
-				if err = rt.Record(&event); err != nil {
-					log.Warningf("event was rejected due to an internal server error: %q", err)
-					d.Reject(true) // requeue as it's an internal server error
-					continue
-				}
-
-				// acknowledge a tracked event
-				log.Infof("event tracked successfully")
-				d.Ack(false)
-			}
-		}()
-
-		log.Infof("Tracking hourly distinct events. To exit press CTRL+C")
-		<-forever
-	})
+	// Listen & Consume Loop
+	consumer.ListenAndConsume(rt.Consume)
 }
 
 func init() {

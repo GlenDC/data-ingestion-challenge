@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/streadway/amqp"
-
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
 	"github.com/glendc/data-ingestion-challenge/pkg/rpc"
 )
@@ -51,30 +49,32 @@ func processRequest(r *http.Request) (*outputEvent, error) {
 }
 
 func main() {
-	rpc.Channel(func(ch *amqp.Channel) {
-		http.HandleFunc("/event", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
-				http.NotFound(w, r)
-				return
-			}
+	producer, err := rpc.NewAMQPProducer()
+	if err != nil {
+		log.Errorf("couldn't create amqp producer: %q", err)
+	}
+	defer producer.Close()
 
-			event, err := processRequest(r)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
+	http.HandleFunc("/event", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
 
-			if err = rpc.Dispatch(ch, event); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+		event, err := processRequest(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-			log.Infof("event dispatched")
-		})
-
-		log.Infof("Metric Collector Service listening to port %d", *port)
-		http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
+		if err = producer.Dispatch(event); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	})
+
+	log.Infof("Metric Collector Service listening to port %d", *port)
+	http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
 }
 
 func init() {

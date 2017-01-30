@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
 	"github.com/glendc/data-ingestion-challenge/pkg/rpc"
@@ -21,55 +22,81 @@ var (
 // this worker will accept it as well.
 type hourlyEvent map[string]interface{}
 
-func main() {
+func newRuntime() (*runtime, error) {
 	session, err := mgo.Dial(*mgoAddress)
 	if err != nil {
-		log.Errorf("couldn't open mongo session: %q", err)
+		return nil, fmt.Errorf("couldn't open mongo session: %q", err)
 	}
-	defer session.Close()
 
-	db := session.DB(*mgoDatabase)
+	return &runtime{
+		session: session,
+	}, nil
+}
+
+type runtime struct {
+	session *mgo.Session
+}
+
+// Consume raw event data and store it as an anonymous object into mongodb
+// Validation of the actual data is not done in this worker
+func (rt *runtime) Consume(raw []byte) *rpc.ConsumeError {
+	var event hourlyEvent
+	// try to unpack raw data as a an hourly event
+	if err := rpc.UnmarshalConsumption(raw, &event); err != nil {
+		return err
+	}
+
+	if err := rt.record(event); err != nil {
+		// requeue is required as this is a mistake on our part
+		// perhaps another accountName worker can handle this
+		// or we can try again later
+		return rpc.NewConsumeError(err, true)
+	}
+
+	log.Infof("recorded event for up to 1 hour")
+	return nil
+}
+
+func (rt *runtime) Close() error {
+	rt.session.Close()
+	return nil
+}
+
+// record event for 1 hour in MongoDB
+func (rt *runtime) record(event hourlyEvent) error {
+	// get collection
+	db := rt.session.DB(*mgoDatabase)
 	if db == nil {
-		log.Errorf("no mongo database could be found for %q", *mgoDatabase)
+		return fmt.Errorf("no mongo database could be found for %q", *mgoDatabase)
 	}
-
 	collection := db.C(*mgoCollection)
 	if collection == nil {
-		log.Errorf("no collection named %q could be found in %q",
+		return fmt.Errorf("no collection named %q could be found in %q",
 			*mgoCollection, *mgoDatabase)
 	}
 
-	cfg := rpc.NewConsumerConfig().WithName("hourlyLog")
-	rpc.Consumer(cfg, func(ch rpc.DeliveryChannel) {
-		forever := make(chan bool)
+	// insert event into collection
+	// TODO
+	//   + Ensure event is only stored for 1 hour!
+	return collection.Insert(event)
+}
 
-		go func() {
-			var event hourlyEvent
-			var err error
+func main() {
+	rt, err := newRuntime()
+	if err != nil {
+		log.Errorf("couldn't create mongo runtime: %q", err)
+	}
+	defer rt.Close()
 
-			for d := range ch {
-				// process delivery
-				if err = rpc.Consume(d, &event); err != nil {
-					log.Warningf("event was rejected: %q", err)
-					continue
-				}
+	cfg := rpc.NewAMQPConsConfig().WithName("hourlyLog")
+	consumer, err := rpc.NewAMQPConsumer(cfg)
+	if err != nil {
+		log.Errorf("couldn't create consumer: %q", err)
+	}
+	defer consumer.Close()
 
-				// track event and acknowledge if all is OK
-				if err = collection.Insert(event); err != nil {
-					log.Warningf("event was rejected due to an internal server error: %q", err)
-					d.Reject(true) // requeue as it's an internal server error
-					continue
-				}
-
-				// acknowledge a tracked event
-				log.Infof("event tracked successfully")
-				d.Ack(false)
-			}
-		}()
-
-		log.Infof("Tracking hourly distinct events. To exit press CTRL+C")
-		<-forever
-	})
+	// Listen & Consume Loop
+	consumer.ListenAndConsume(rt.Consume)
 }
 
 func init() {

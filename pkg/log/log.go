@@ -8,6 +8,7 @@ import (
 	"runtime"
 )
 
+// Logger specific flags
 var (
 	debug = flag.Bool("debug", false, "allow for verbose logging (DEBUG env can be used as well)")
 )

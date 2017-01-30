@@ -69,8 +69,41 @@ type runtime struct {
 	client *redis.Client
 }
 
-// Record a daily event into Redis, storing it up to 30 days
-func (rt *runtime) Record(event *dailyEvent) error {
+// Consume raw incoming data as a daily event and record it
+// see runtime::Record for more information
+func (rt *runtime) Consume(raw []byte) *rpc.ConsumeError {
+	var event dailyEvent
+	// try to unpack raw data as a daily event
+	if err := rpc.UnmarshalConsumption(raw, &event); err != nil {
+		return err
+	}
+
+	// validate data
+	if err := event.Validate(); err != nil {
+		// requeue is not required as this data is not valid
+		return rpc.NewConsumeError(err, false)
+	}
+
+	if err := rt.record(&event); err != nil {
+		// requeue is required as this is a mistake on our part
+		// perhaps another distinctName worker can handle this
+		// or we can try again later
+		return rpc.NewConsumeError(err, true)
+	}
+
+	log.Infof("recorded distinct event for %q", *event.Username)
+	return nil
+}
+
+func (rt *runtime) Close() error {
+	return rt.client.Close()
+}
+
+// record a daily event into Redis, storing it up to 30 days
+// TODO:
+//  + Merge events older then 30 days into a monthly bucket
+//  + Cleanup events that have been merged into a monthly bucket
+func (rt *runtime) record(event *dailyEvent) error {
 	cmd := rt.client.Incr(event.Key())
 	return cmd.Err()
 }
@@ -80,44 +113,17 @@ func main() {
 	if err != nil {
 		log.Errorf("couldn't create redis runtime: %q", err)
 	}
+	defer rt.Close()
 
-	cfg := rpc.NewConsumerConfig().WithName("distinctName")
-	rpc.Consumer(cfg, func(ch rpc.DeliveryChannel) {
-		forever := make(chan bool)
+	cfg := rpc.NewAMQPConsConfig().WithName("distinctName")
+	consumer, err := rpc.NewAMQPConsumer(cfg)
+	if err != nil {
+		log.Errorf("couldn't create consumer: %q", err)
+	}
+	defer consumer.Close()
 
-		go func() {
-			var event dailyEvent
-			var err error
-
-			for d := range ch {
-				// process delivery
-				if err = rpc.Consume(d, &event); err != nil {
-					log.Warningf("event was rejected: %q", err)
-					continue
-				}
-
-				if err = event.Validate(); err != nil {
-					log.Warningf("event was rejected: %q", err)
-					d.Reject(false) // delete delivery as its payload is invalid
-					continue
-				}
-
-				// track event and acknowledge if all is OK
-				if err = rt.Record(&event); err != nil {
-					log.Warningf("event was rejected due to an internal server error: %q", err)
-					d.Reject(true) // requeue as it's an internal server error
-					continue
-				}
-
-				// acknowledge a tracked event
-				log.Infof("event tracked successfully")
-				d.Ack(false)
-			}
-		}()
-
-		log.Infof("Tracking daily distinct events. To exit press CTRL+C")
-		<-forever
-	})
+	// Listen & Consume Loop
+	consumer.ListenAndConsume(rt.Consume)
 }
 
 func init() {
