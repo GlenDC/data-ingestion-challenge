@@ -24,6 +24,10 @@ func Infof(format string, args ...interface{}) {
 
 // Warningf logs an error that can be recovered from
 func Warningf(format string, args ...interface{}) {
+	if !*debug {
+		return // only in debug mode
+	}
+
 	log.Printf(message("WARNING", format), args...)
 }
 
