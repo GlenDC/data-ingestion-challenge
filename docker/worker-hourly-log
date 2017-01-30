@@ -1,0 +1,4 @@
+FROM alpine:3.5
+ADD bin/hourly-log /go/bin/hourly-log
+RUN apk add --update ca-certificates # Certificates for SSL
+ENTRYPOINT ["/go/bin/hourly-log"]

@@ -29,7 +29,7 @@ type outputEvent struct {
 }
 
 func processRequest(r *http.Request) (*outputEvent, error) {
-	log.Infof("processing event and preparing it for dispatch")
+	log.Infof("processing and validating event")
 
 	// validate content type
 	if ct := r.Header.Get("Content-Type"); ct != "application/json" {

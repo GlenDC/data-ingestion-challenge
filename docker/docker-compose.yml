@@ -1,0 +1,82 @@
+version: '2'
+services:
+    rabbit:
+      image: rabbitmq:3.6
+      hostname: rabbit
+      ports:
+        - "5672:5672"
+      environment:
+        - RABBITMQ_DEFAULT_USER=bunny
+        - RABBITMQ_DEFAULT_PASS=bunny
+      restart: always
+    metric-collector:
+      build:
+        context: ../
+        dockerfile: ./docker/metric-collector
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --debug
+      hostname: mcservice
+      restart: always
+      depends_on:
+        - rabbit
+      ports:
+        - "3000:3000"
+    redis:
+      image: redis:3
+      hostname: redis
+      restart: always
+    worker-distinct-name:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-distinct-name
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - redis:6379
+        - --debug
+      hostname: distinct-name
+      restart: always
+      depends_on:
+        - metric-collector
+        - redis
+    mongo:
+      image: mongo:3
+      hostname: mongo
+      restart: always
+    worker-hourly-log:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-hourly-log
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - mongo:27017
+        - --debug
+      hostname: hourly-log
+      restart: always
+      depends_on:
+        - metric-collector
+        - mongo
+    postgres:
+      image: postgres:9
+      hostname: postgres
+      restart: always
+    worker-account-name:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-account-name
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - postgres:5432
+        - --debug
+      hostname: account-name
+      restart: always
+      depends_on:
+        - metric-collector
+        - postgres

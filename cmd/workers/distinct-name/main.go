@@ -71,9 +71,7 @@ type runtime struct {
 
 // Record a daily event into Redis, storing it up to 30 days
 func (rt *runtime) Record(event *dailyEvent) error {
-	key := event.Key()
-	log.Infof("incrementing counter of %q", key)
-	cmd := rt.client.Incr(key)
+	cmd := rt.client.Incr(event.Key())
 	return cmd.Err()
 }
 

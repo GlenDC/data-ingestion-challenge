@@ -14,6 +14,7 @@ import (
 
 // cmd redis-specific flags
 var (
+	pgAddress  = flag.String("address", "localhost:5432", "postgres address")
 	pgUser     = flag.String("user", "postgres", "postgres user")
 	pgPassword = flag.String("password", "", "postgres password")
 	pgDatabase = flag.String("db", "postgres", "postgres database")
@@ -48,6 +49,7 @@ func newRuntime() (*runtime, error) {
 		User:     *pgUser,
 		Password: *pgPassword,
 		Database: *pgDatabase,
+		Addr:     *pgAddress,
 	})
 
 	q := fmt.Sprintf(
