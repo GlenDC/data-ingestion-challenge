@@ -15,17 +15,17 @@ import (
 
 // cmd redis-specific flags
 var (
-	pgAddress  = flag.String("address", "localhost:5432", "postgres address")
-	pgUser     = flag.String("user", "postgres", "postgres user")
-	pgPassword = flag.String("password", "", "postgres password")
-	pgDatabase = flag.String("db", "postgres", "postgres database")
-	pgTable    = flag.String("table", "accountNames", "postgres table to use to store accountNames events")
+	pgAddress  string
+	pgUser     string
+	pgPassword string
+	pgDatabase string
+	pgTable    string
 )
 
 // create a new postgres runtime client
 func newRuntime() (*runtime, error) {
 	uri := fmt.Sprintf("postgres://%s:%s@%s/%s",
-		*pgUser, *pgPassword, *pgAddress, *pgDatabase)
+		pgUser, pgPassword, pgAddress, pgDatabase)
 	db, err := sql.Open("postgres", uri)
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func newRuntime() (*runtime, error) {
 
 	resp, err := db.Query(fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s (username text unique, timestamp integer);`,
-		*pgTable))
+		pgTable))
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (rt *runtime) Close() error {
 func (rt *runtime) record(event *pkg.Event) (bool, error) {
 	resp, err := rt.db.Query(fmt.Sprintf(
 		`INSERT INTO %s VALUES('%s', %d) ON CONFLICT (username) DO NOTHING;`,
-		*pgTable, *event.Username, *event.Timestamp))
+		pgTable, *event.Username, *event.Timestamp))
 	if err != nil {
 		return false, err
 	}
@@ -88,22 +88,23 @@ func (rt *runtime) record(event *pkg.Event) (bool, error) {
 
 // ensure given flags make sense
 func validateFlags() error {
-	if *pgAddress == "" {
+	if pgAddress == "" {
 		return errors.New("postgres instance's address not given, while this is required")
 	}
-	if *pgUser == "" {
+	if pgUser == "" {
 		return errors.New("postgres username not given, while this is required")
 	}
-	if *pgDatabase == "" {
+	if pgDatabase == "" {
 		return errors.New("postgres database's name not given, while this is required")
 	}
-	if *pgTable == "" {
+	if pgTable == "" {
 		return errors.New("postgres table's interval has to be positive and non-zero")
 	}
 	return nil
 }
 
 func main() {
+	flag.Parse() // parse all (non-)specific flags
 	err := validateFlags()
 	if err != nil {
 		flag.Usage()
@@ -128,6 +129,10 @@ func main() {
 }
 
 func init() {
-	flag.Parse()
-	log.Init()
+	flag.StringVar(&pgAddress, "address", "localhost:5432", "postgres address")
+	flag.StringVar(&pgUser, "user", "postgres", "postgres user")
+	flag.StringVar(&pgPassword, "password", "", "postgres password")
+	flag.StringVar(&pgDatabase, "db", "postgres", "postgres database")
+	flag.StringVar(&pgTable, "table", "accountNames",
+		"postgres table to use to store accountNames events")
 }

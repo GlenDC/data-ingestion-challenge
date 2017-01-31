@@ -15,25 +15,25 @@ import (
 
 // cmd redis-specific flags
 var (
-	redisAddress  = flag.String("address", "localhost:6379", "redis instance address")
-	redisPassword = flag.String("password", "", "redis instance password")
-	redisDB       = flag.Int("db", 0, "redis instance db")
+	redisAddress  string
+	redisPassword string
+	redisDB       int
 )
 
 // dailyIDFromEvent returns the daily event data as a key
-// using the format: MM.DD.<METRIC>.<USERNAME>
+// using the format: MM.DD.<METRIC>
 func dailyIDFromEvent(e *pkg.Event) string {
 	date := time.Unix(*e.Timestamp, 0).UTC()
-	return fmt.Sprintf("%02d.%02d.%s.%s",
-		date.Month(), date.Day(), *e.Username, e.Metric)
+	return fmt.Sprintf("%02d.%02d.%s",
+		date.Month(), date.Day(), e.Metric)
 }
 
 // create a new redis runtime client
 func newRuntime() (*runtime, error) {
 	client := redis.NewClient(&redis.Options{
-		Addr:     *redisAddress,
-		Password: *redisPassword,
-		DB:       *redisDB,
+		Addr:     redisAddress,
+		Password: redisPassword,
+		DB:       redisDB,
 	})
 
 	if _, err := client.Ping().Result(); err != nil {
@@ -80,13 +80,14 @@ func (rt *runtime) record(event *pkg.Event) error {
 
 // ensure given flags make sense
 func validateFlags() error {
-	if *redisAddress == "" {
+	if redisAddress == "" {
 		return errors.New("redis instance's address not given, while this is required")
 	}
 	return nil
 }
 
 func main() {
+	flag.Parse() // parse all (non-)specific flags
 	err := validateFlags()
 	if err != nil {
 		flag.Usage()
@@ -111,6 +112,7 @@ func main() {
 }
 
 func init() {
-	flag.Parse()
-	log.Init()
+	flag.StringVar(&redisAddress, "address", "localhost:6379", "redis instance address")
+	flag.StringVar(&redisPassword, "password", "", "redis instance password")
+	flag.IntVar(&redisDB, "db", 0, "redis instance db")
 }

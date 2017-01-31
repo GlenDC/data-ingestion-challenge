@@ -3,6 +3,7 @@ package rpc
 import (
 	"encoding/json"
 	"flag"
+	"time"
 
 	"github.com/streadway/amqp"
 
@@ -10,30 +11,46 @@ import (
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
 )
 
-// TODO
-//  + Ensure that data is not lost in case a specific type of consumer is not active.
-//    Meaning that even if no accountName worker is active, the events not yet tracked by
-//    a accountName worker should still be enqueued, until one is active;
-//  + Ensure that events are persistent in case of failure;
-
 // RabbitMQ specific flags
 var (
-	uri          = flag.String("uri", "amqp://guest:guest@localhost:5672/", "AMQP URI")
-	exchangeName = flag.String("exchange", "mc_events", "AMQP exchange name")
+	uri          string
+	exchangeName string
+	messageTTL   time.Duration
+)
+
+// Exchange Constants
+const (
+	// exchanges will survive server restarts
+	// and remain declared when there are no remaining bindings
+	exchangeDurable     = true
+	exchangeAutoDeleted = false
 )
 
 // NewAMQPChannel creates an open AMQP channel,
 // using a newly created open RabbitMQ connection
 // NOTE: Always make sure to Close a created AMQPChannel!
 func NewAMQPChannel() (*AMQPChannel, error) {
-	log.Infof("dialing AMPQ @ %s", *uri)
-	conn, err := amqp.Dial(*uri)
+	log.Infof("dialing AMPQ @ %s", uri)
+	conn, err := amqp.Dial(uri)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Infof("opening channel & declaring exchange (%s)", *exchangeName)
+	log.Infof("opening channel & declaring exchange (%s)", exchangeName)
 	ch, err := conn.Channel()
+	if err != nil {
+		return nil, err
+	}
+
+	err = ch.ExchangeDeclare(
+		exchangeName,        // name
+		"fanout",            // type
+		exchangeDurable,     // durable
+		exchangeAutoDeleted, // auto-deleted
+		false,               // internal
+		false,               // no-wait
+		nil,                 // arguments
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -92,12 +109,14 @@ func (prod *AMQPProducer) Dispatch(data interface{}) error {
 		return err
 	}
 
-	log.Infof("dispatching application/json data to exchange %q", *exchangeName)
+	log.Infof("dispatching application/json data to exchange %q", exchangeName)
 	return prod.ch.channel.Publish(
-		*exchangeName, // exchange
-		"",            // routing key
-		false,         // mandatory
-		false,         // immediate
+		exchangeName, // exchange
+		// no routing key is used here, or in the queue decleration
+		"", // routing key
+		// keep deliveries in queue, even if no consumer is active
+		false, // mandatory
+		false, // immediate
 		amqp.Publishing{
 			ContentType: "application/json",
 			Body:        []byte(bytes),
@@ -121,6 +140,18 @@ func (cfg *AMQPConsConfig) WithName(name string) *AMQPConsConfig {
 	return cfg
 }
 
+// Queue Constants
+const (
+	// will survive server restarts and
+	// remain declared when there are no remaining bindings
+	queueAutoDeleted = false
+	queueDurable     = true
+	// non-exclusive queue
+	queueExclusive = false
+	// default routing-key used
+	queueRoutingKey = ""
+)
+
 // NewAMQPConsumer creates a Consumer ready for consumption of
 // data delivered via the RabbitMQ system.
 // Also declares a queue created using the given configuration.
@@ -132,12 +163,18 @@ func NewAMQPConsumer(cfg *AMQPConsConfig) (Consumer, error) {
 	}
 
 	q, err := ch.channel.QueueDeclare(
-		cfg.Name, // name
-		true,     // durable
-		false,    // delete when unused
-		true,     // exclusive
-		false,    // no-wait
-		nil,      // arguments
+		cfg.Name,         // name
+		queueDurable,     // durable
+		queueAutoDeleted, // delete when unused
+		queueExclusive,   // exclusive
+		false,            // no-wait
+		amqp.Table{
+			// message TTL in ms
+			// more information: https://www.rabbitmq.com/ttl.html
+			// this to ensure that our durable queues don't
+			// grow to the max size of our hardware limits
+			"x-message-ttl": messageTTL.Nanoseconds() / 1000000,
+		}, // arguments
 	)
 	if err != nil {
 		ch.Close() // ensure channel is closed
@@ -145,11 +182,12 @@ func NewAMQPConsumer(cfg *AMQPConsConfig) (Consumer, error) {
 	}
 
 	err = ch.channel.QueueBind(
-		q.Name,        // queue name
-		"",            // routing key
-		*exchangeName, // exchange
-		false,
-		nil)
+		q.Name,          // queue name
+		queueRoutingKey, // routing key
+		exchangeName,    // exchange
+		false,           // no-wait
+		nil,             // arguments
+	)
 	if err != nil {
 		ch.Close() // ensure channel is closed
 		return nil, err
@@ -158,11 +196,13 @@ func NewAMQPConsumer(cfg *AMQPConsConfig) (Consumer, error) {
 	consumer, err := ch.channel.Consume(
 		q.Name, // queue
 		"",     // consumer
-		false,  // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
+		// deliveries need excplit acknowledgement from users
+		// see AMQPConsumer::ListenAndConsume for more information
+		false,          // auto-ack
+		queueExclusive, // exclusive
+		false,          // no-local
+		false,          // no-wait
+		nil,            // args
 	)
 	if err != nil {
 		ch.Close() // ensure channel is closed
@@ -188,6 +228,7 @@ func (cons *AMQPConsumer) Close() error {
 
 // ListenAndConsume any data received from the RabbitMQ system
 // The actual processing of the received data is done by the given callback (cb)
+// Acknowledgement of deliveries is explicitely done using Reject/Ack
 func (cons *AMQPConsumer) ListenAndConsume(cb ConsumeCallback) {
 	forever := make(chan bool)
 
@@ -229,4 +270,10 @@ func (cons *AMQPConsumer) ListenAndConsume(cb ConsumeCallback) {
 
 	log.Infof("Listening to events. To exit press CTRL+C")
 	<-forever
+}
+
+func init() {
+	flag.StringVar(&uri, "uri", "amqp://guest:guest@localhost:5672/", "AMQP URI")
+	flag.StringVar(&exchangeName, "exchange", "metric-collector", "AMQP exchange name")
+	flag.DurationVar(&messageTTL, "message-ttl", time.Duration(time.Hour*24), "Message Time To Live (TTL)")
 }

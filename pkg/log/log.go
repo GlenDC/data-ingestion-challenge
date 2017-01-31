@@ -10,12 +10,12 @@ import (
 
 // Logger specific flags
 var (
-	debug = flag.Bool("debug", false, "allow for verbose logging (DEBUG env can be used as well)")
+	debug bool
 )
 
 // Infof logs info messages in verbose mode
 func Infof(format string, args ...interface{}) {
-	if !*debug {
+	if !debug {
 		return // only in debug mode
 	}
 
@@ -24,7 +24,7 @@ func Infof(format string, args ...interface{}) {
 
 // Warningf logs an error that can be recovered from
 func Warningf(format string, args ...interface{}) {
-	if !*debug {
+	if !debug {
 		return // only in debug mode
 	}
 
@@ -36,15 +36,15 @@ func Errorf(format string, args ...interface{}) {
 	log.Fatalf(message("ERROR", format), args...)
 }
 
-// Init configures the log
-func Init() {
-	*debug = *debug || (os.Getenv("DEBUG") != "")
-}
-
 // message creates a informational log message
 func message(level, message string) string {
 	// collect fileName and lineNumber of callee
 	_, fn, ln, _ := runtime.Caller(2)
 	// return formatted format string
 	return fmt.Sprintf("[%s] {%s:%d} %s", level, fn, ln, message)
+}
+
+func init() {
+	flag.BoolVar(&debug, "debug", os.Getenv("DEBUG") != "",
+		"allow for verbose logging (DEBUG env can be used as well)")
 }

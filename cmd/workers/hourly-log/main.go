@@ -16,12 +16,14 @@ import (
 
 // cmd redis-specific flags
 var (
-	mgoAddress    = flag.String("address", "localhost:27017", "mongo instance address")
-	mgoDatabase   = flag.String("db", "events", "mongo database")
-	mgoCollection = flag.String("collection", "hourly", "mongo db collection")
-	gcInterval    = flag.Duration("gc-interval", time.Minute*5, "Garbage Collector interval on which it deletes old logs")
+	mgoAddress    string
+	mgoDatabase   string
+	mgoCollection string
+	gcInterval    time.Duration
 )
 
+// defines how long a record stored in this hourlyLog actually lives,
+// before it gets wiped off by the garbage collector
 const recordTTL = time.Hour
 
 var cleanupSelector = bson.M{
@@ -31,7 +33,7 @@ var cleanupSelector = bson.M{
 }
 
 func newRuntime() (*runtime, error) {
-	session, err := mgo.Dial(*mgoAddress)
+	session, err := mgo.Dial(mgoAddress)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't open mongo session: %q", err)
 	}
@@ -93,14 +95,14 @@ func (rt *runtime) record(event *pkg.Event) error {
 }
 
 func (rt *runtime) getCollection() (*mgo.Collection, error) {
-	db := rt.session.DB(*mgoDatabase)
+	db := rt.session.DB(mgoDatabase)
 	if db == nil {
-		return nil, fmt.Errorf("no mongo database could be found for %q", *mgoDatabase)
+		return nil, fmt.Errorf("no mongo database could be found for %q", mgoDatabase)
 	}
-	collection := db.C(*mgoCollection)
+	collection := db.C(mgoCollection)
 	if collection == nil {
 		return nil, fmt.Errorf("no collection named %q could be found in %q",
-			*mgoCollection, *mgoDatabase)
+			mgoCollection, mgoDatabase)
 	}
 
 	return collection, nil
@@ -108,50 +110,46 @@ func (rt *runtime) getCollection() (*mgo.Collection, error) {
 
 // ensure given flags make sense
 func validateFlags() error {
-	if *mgoAddress == "" {
+	if mgoAddress == "" {
 		return errors.New("mongo instance's address not given, while this is required")
 	}
-	if *mgoDatabase == "" {
+	if mgoDatabase == "" {
 		return errors.New("mongo database's name not given, while this is required")
 	}
-	if *mgoCollection == "" {
+	if mgoCollection == "" {
 		return errors.New("mongodb collection's name not given, while this is required")
 	}
-	if *gcInterval <= 0 {
+	if gcInterval <= 0 {
 		return errors.New("garbage collector's interval has to be positive and non-zero")
 	}
 	return nil
 }
 
-// cleanupJob is a seperate main, running just a cleanup job
-func cleanupJob() {
-	rt, err := newRuntime()
-	for err != nil {
-		log.Warningf("couldn't create mongo runtime: %q", err)
-		rt, err = newRuntime()
-	}
-	defer rt.Close()
-
-	time.Sleep(time.Second * 5) // give runtime some time to connect
-	log.Infof("clean up job up and running, removing old logs every %v", *gcInterval)
+// cleanupJob is a seperate coroutine, running just a cleanup job
+//
+// NOTE: another cleanup approach that has been considered is cleaning while inserting,
+// and thus piggy-backing on the existing program flow,
+// while this does make the program slightly simpler, it did seem like
+// it would make the program more expensive, without much simplicity to be gained
+func cleanupJob(rt *runtime) {
+	log.Infof("clean up job up and running, removing old logs every %v", gcInterval)
 	var gcError error
+
 	for {
 		if gcError = rt.RemoveOldLogs(); gcError != nil {
 			log.Warningf("couldn't cleanup old hourly logs: %q", gcError)
 		}
-		time.Sleep(*gcInterval)
+		time.Sleep(gcInterval)
 	}
 }
 
 func main() {
+	flag.Parse() // parse all (non-)specific flags
 	err := validateFlags()
 	if err != nil {
 		flag.Usage()
 		log.Errorf("invalid flag: %q", err)
 	}
-
-	// cleanup job
-	go cleanupJob()
 
 	// create runtime that we'll use as a consumer
 	rt, err := newRuntime()
@@ -159,6 +157,9 @@ func main() {
 		log.Errorf("couldn't create mongo runtime: %q", err)
 	}
 	defer rt.Close()
+
+	// cleanup job
+	go cleanupJob(rt)
 
 	cfg := rpc.NewAMQPConsConfig().WithName("hourlyLog")
 	consumer, err := rpc.NewAMQPConsumer(cfg)
@@ -172,6 +173,9 @@ func main() {
 }
 
 func init() {
-	flag.Parse()
-	log.Init()
+	flag.StringVar(&mgoAddress, "address", "localhost:27017", "mongo instance address")
+	flag.StringVar(&mgoDatabase, "db", "events", "mongo database")
+	flag.StringVar(&mgoCollection, "collection", "hourly", "mongo db collection")
+	flag.DurationVar(&gcInterval, "gc-interval", time.Minute*30,
+		"Garbage Collector interval on which it deletes old logs")
 }

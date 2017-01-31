@@ -12,8 +12,9 @@ import (
 	"github.com/glendc/data-ingestion-challenge/pkg/rpc"
 )
 
+// Metric-Collector Specific Flags
 var (
-	port = flag.Int("port", 3000, "port the metric collector service will listen to")
+	port int
 )
 
 type rawEvent struct {
@@ -48,6 +49,8 @@ func processRequest(r *http.Request) (*pkg.Event, error) {
 }
 
 func main() {
+	flag.Parse() // parse all (non-)specific flags
+
 	producer, err := rpc.NewAMQPProducer()
 	if err != nil {
 		log.Errorf("couldn't create amqp producer: %q", err)
@@ -72,11 +75,11 @@ func main() {
 		}
 	})
 
-	log.Infof("Metric Collector Service listening to port %d", *port)
-	http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
+	log.Infof("Metric Collector Service listening to port %d", port)
+	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
 
 func init() {
-	flag.Parse()
-	log.Init()
+	flag.IntVar(&port, "port", 3000,
+		"port the metric collector service will listen to")
 }
