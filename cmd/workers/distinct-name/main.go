@@ -59,7 +59,7 @@ func (rt *runtime) Consume(event *pkg.Event) *rpc.ConsumeError {
 		return rpc.NewConsumeError(err, true)
 	}
 
-	log.Infof("recorded distinct event for %q", *event.Username)
+	log.Infof("recorded distinct event for metric %q", *event.Metric)
 	return nil
 }
 
