@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"regexp"
 
 	"github.com/glendc/data-ingestion-challenge/pkg"
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
@@ -20,20 +21,43 @@ var (
 	pgPassword string
 	pgDatabase string
 	pgTable    string
+	pgSSLMode  string
+)
+
+// Postgres SSL mode can be one of following
+// More info: https://godoc.org/github.com/lib/pq
+var sslModeEnum = []string{"disable", "require", "verify-ca", "verify-full"}
+
+// validate tablename via a regexp to prevent sql-injection attacks,
+// not required for arguments as they can use the available variable placeholders
+// simplified version of SQL Syntax Identifier as described in official docs:
+// https://www.postgresql.org/docs/current/static/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS
+const reTableName = `^[a-z_][a-zA-Z0-9_]*$`
+
+var rexTableName = regexp.MustCompile(reTableName)
+
+// properties used in postgres records
+const (
+	propUsername  = "username"
+	propTimestamp = "timestamp"
 )
 
 // create a new postgres runtime client
 func newRuntime() (*runtime, error) {
-	uri := fmt.Sprintf("postgres://%s:%s@%s/%s",
-		pgUser, pgPassword, pgAddress, pgDatabase)
+	uri := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=%s",
+		pgUser, pgPassword, pgAddress, pgDatabase, pgSSLMode)
 	db, err := sql.Open("postgres", uri)
 	if err != nil {
 		return nil, err
 	}
 
+	if err = db.Ping(); err != nil {
+		return nil, fmt.Errorf("postgres is not reachable: %q", err)
+	}
+
 	resp, err := db.Query(fmt.Sprintf(
-		`CREATE TABLE IF NOT EXISTS %s (username text unique, timestamp integer);`,
-		pgTable))
+		`CREATE TABLE IF NOT EXISTS %s (%s text unique, %s integer);`,
+		pgTable, propUsername, propTimestamp))
 	if err != nil {
 		return nil, err
 	}
@@ -74,16 +98,23 @@ func (rt *runtime) Close() error {
 // After that nothing will be inserted and the returned boolean will be false.
 func (rt *runtime) record(event *pkg.Event) (bool, error) {
 	resp, err := rt.db.Query(fmt.Sprintf(
-		`INSERT INTO %s VALUES('%s', %d) ON CONFLICT (username) DO NOTHING;`,
-		pgTable, *event.Username, *event.Timestamp))
+		`INSERT INTO %s VALUES($1, $2) ON CONFLICT (%s) DO NOTHING RETURNING *;`,
+		pgTable, propUsername), *event.Username, *event.Timestamp)
 	if err != nil {
 		return false, err
 	}
 	defer resp.Close()
+	return resp.Next(), nil
+}
 
-	columns, err := resp.Columns()
-	inserted := err == nil && len(columns) > 0
-	return inserted, nil
+func validateSSLMode() bool {
+	for sslModeIndex := range sslModeEnum {
+		if sslModeEnum[sslModeIndex] == pgSSLMode {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ensure given flags make sense
@@ -97,9 +128,15 @@ func validateFlags() error {
 	if pgDatabase == "" {
 		return errors.New("postgres database's name not given, while this is required")
 	}
-	if pgTable == "" {
-		return errors.New("postgres table's interval has to be positive and non-zero")
+	if !rexTableName.MatchString(pgTable) {
+		return fmt.Errorf(
+			"postgres table's name %q is not valid according to regexp(%q)",
+			pgTable, reTableName)
 	}
+	if !validateSSLMode() {
+		return fmt.Errorf("postgres ssl-mode has to be one of %v", sslModeEnum)
+	}
+
 	return nil
 }
 
@@ -135,4 +172,6 @@ func init() {
 	flag.StringVar(&pgDatabase, "db", "postgres", "postgres database")
 	flag.StringVar(&pgTable, "table", "accountNames",
 		"postgres table to use to store accountNames events")
+	flag.StringVar(&pgSSLMode, "ssl-mode", "disable",
+		fmt.Sprintf("ssl mode used to connect to postgreg %v", sslModeEnum))
 }
