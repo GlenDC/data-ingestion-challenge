@@ -55,6 +55,9 @@ services:
         - amqp://bunny:bunny@rabbit:5672/
         - --address
         - mongo:27017
+        - --message-ttl
+        - 1h # no need to keep messages longer then 1 hour in the queue
+             # as we only want to keep messages recored up to 1 hour
         - --debug
       hostname: hourly-log
       restart: always
