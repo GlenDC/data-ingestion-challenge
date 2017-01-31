@@ -42,8 +42,8 @@ func processRequest(r *http.Request) (*pkg.Event, error) {
 	timestamp := time.Now().UTC().Unix()
 	return &pkg.Event{
 		Username:  &event.Username, // required
-		Metric:    event.Metric,    // optional
-		Count:     event.Count,     // optional
+		Metric:    &event.Metric,   // required
+		Count:     &event.Count,    // required
 		Timestamp: &timestamp,      // required
 	}, nil
 }

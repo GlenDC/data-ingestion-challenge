@@ -14,8 +14,8 @@ const (
 type Event struct {
 	Username  *string `json:"username" bson:"username"`
 	Timestamp *int64  `json:"timestamp" bson:"timestamp"`
-	Metric    string  `json:"metric" bson:"metric"`
-	Count     int64   `json:"count" bson:"count"`
+	Metric    *string `json:"metric" bson:"metric"`
+	Count     *int64  `json:"count" bson:"count"`
 }
 
 // Validate if all required properties are present in this event
@@ -25,6 +25,12 @@ func (e *Event) Validate() error {
 	}
 	if e.Timestamp == nil {
 		return errors.New(`required timestamp property is not present`)
+	}
+	if e.Metric == nil {
+		return errors.New(`required metric property is not present`)
+	}
+	if e.Count == nil {
+		return errors.New(`required count property is not present`)
 	}
 
 	return nil

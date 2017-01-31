@@ -25,7 +25,7 @@ var (
 func dailyIDFromEvent(e *pkg.Event) string {
 	date := time.Unix(*e.Timestamp, 0).UTC()
 	return fmt.Sprintf("%02d.%02d.%s",
-		date.Month(), date.Day(), e.Metric)
+		date.Month(), date.Day(), *e.Metric)
 }
 
 // create a new redis runtime client
