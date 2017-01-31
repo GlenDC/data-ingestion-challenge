@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/glendc/data-ingestion-challenge/pkg"
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
 	"github.com/glendc/data-ingestion-challenge/pkg/rpc"
 )
@@ -16,17 +17,12 @@ var (
 )
 
 type rawEvent struct {
-	Username string `json:"username,omitempty"`
-	Count    int64  `json:"count,omitempty"`
-	Metric   string `json:"metric,omitempty"`
+	Username string `json:"username"`
+	Metric   string `json:"metric"`
+	Count    int64  `json:"count"`
 }
 
-type outputEvent struct {
-	rawEvent
-	Date time.Time `json:"date"`
-}
-
-func processRequest(r *http.Request) (*outputEvent, error) {
+func processRequest(r *http.Request) (*pkg.Event, error) {
 	log.Infof("processing and validating event")
 
 	// validate content type
@@ -42,9 +38,12 @@ func processRequest(r *http.Request) (*outputEvent, error) {
 		return nil, fmt.Errorf("couldn't decode event: %q", err)
 	}
 
-	return &outputEvent{
-		rawEvent: event,
-		Date:     time.Now().UTC(),
+	timestamp := time.Now().UTC().Unix()
+	return &pkg.Event{
+		Username:  &event.Username, // required
+		Metric:    event.Metric,    // optional
+		Count:     event.Count,     // optional
+		Timestamp: &timestamp,      // required
 	}, nil
 }
 

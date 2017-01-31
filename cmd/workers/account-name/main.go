@@ -1,15 +1,16 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
-	"time"
 
+	"github.com/glendc/data-ingestion-challenge/pkg"
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
 	"github.com/glendc/data-ingestion-challenge/pkg/rpc"
 
-	"gopkg.in/pg.v5"
+	_ "github.com/lib/pq"
 )
 
 // cmd redis-specific flags
@@ -18,46 +19,25 @@ var (
 	pgUser     = flag.String("user", "postgres", "postgres user")
 	pgPassword = flag.String("password", "", "postgres password")
 	pgDatabase = flag.String("db", "postgres", "postgres database")
-	pgTable    = flag.String("table", "ftues", "postgres table to use to store ftue events")
+	pgTable    = flag.String("table", "accountNames", "postgres table to use to store accountNames events")
 )
-
-// event struct as this worker expects it
-type ftue struct {
-	Username *string
-	Date     *time.Time
-}
-
-func (e *ftue) String() string {
-	return fmt.Sprintf("%s<%s %s>", *pgTable, *e.Username, e.Date.String())
-}
-
-// Validate the ftue event
-func (e *ftue) Validate() error {
-	if e.Username == nil {
-		return errors.New("required username property not given")
-	}
-	if e.Date == nil {
-		return errors.New("required date property not given")
-	}
-
-	return nil
-}
 
 // create a new postgres runtime client
 func newRuntime() (*runtime, error) {
-	db := pg.Connect(&pg.Options{
-		User:     *pgUser,
-		Password: *pgPassword,
-		Database: *pgDatabase,
-		Addr:     *pgAddress,
-	})
-
-	q := fmt.Sprintf(
-		`CREATE TABLE IF NOT EXISTS %s (username text unique, date timestamptz)`,
-		*pgTable)
-	if _, err := db.Exec(q); err != nil {
+	uri := fmt.Sprintf("postgres://%s:%s@%s/%s",
+		*pgUser, *pgPassword, *pgAddress, *pgDatabase)
+	db, err := sql.Open("postgres", uri)
+	if err != nil {
 		return nil, err
 	}
+
+	resp, err := db.Query(fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s (username text unique, timestamp integer);`,
+		*pgTable))
+	if err != nil {
+		return nil, err
+	}
+	resp.Close()
 
 	return &runtime{
 		db: db,
@@ -65,23 +45,11 @@ func newRuntime() (*runtime, error) {
 }
 
 type runtime struct {
-	db *pg.DB
+	db *sql.DB
 }
 
-func (rt *runtime) Consume(raw []byte) *rpc.ConsumeError {
-	var event ftue
-	// try to unpack raw data as a daily event
-	if err := rpc.UnmarshalConsumption(raw, &event); err != nil {
-		return err
-	}
-
-	// validate data
-	if err := event.Validate(); err != nil {
-		// requeue is not required as this data is not valid
-		return rpc.NewConsumeError(err, false)
-	}
-
-	inserted, err := rt.record(&event)
+func (rt *runtime) Consume(event *pkg.Event) *rpc.ConsumeError {
+	inserted, err := rt.record(event)
 	if err != nil {
 		// requeue is required as this is a mistake on our part
 		// perhaps another accountName worker can handle this
@@ -104,17 +72,44 @@ func (rt *runtime) Close() error {
 // there is only one record inserted per user,
 // which is the first event that gets recorded for that user.
 // After that nothing will be inserted and the returned boolean will be false.
-func (rt *runtime) record(event *ftue) (bool, error) {
-	resp, err := rt.db.Model(event).OnConflict("(username) DO NOTHING").Insert()
+func (rt *runtime) record(event *pkg.Event) (bool, error) {
+	resp, err := rt.db.Query(fmt.Sprintf(
+		`INSERT INTO %s VALUES('%s', %d) ON CONFLICT (username) DO NOTHING;`,
+		*pgTable, *event.Username, *event.Timestamp))
 	if err != nil {
 		return false, err
 	}
+	defer resp.Close()
 
-	inserted := resp.RowsAffected() > 0
+	columns, err := resp.Columns()
+	inserted := err == nil && len(columns) > 0
 	return inserted, nil
 }
 
+// ensure given flags make sense
+func validateFlags() error {
+	if *pgAddress == "" {
+		return errors.New("postgres instance's address not given, while this is required")
+	}
+	if *pgUser == "" {
+		return errors.New("postgres username not given, while this is required")
+	}
+	if *pgDatabase == "" {
+		return errors.New("postgres database's name not given, while this is required")
+	}
+	if *pgTable == "" {
+		return errors.New("postgres table's interval has to be positive and non-zero")
+	}
+	return nil
+}
+
 func main() {
+	err := validateFlags()
+	if err != nil {
+		flag.Usage()
+		log.Errorf("invalid flag: %q", err)
+	}
+
 	rt, err := newRuntime()
 	if err != nil {
 		log.Errorf("couldn't create postgres runtime: %q", err)

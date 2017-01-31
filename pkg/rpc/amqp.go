@@ -6,6 +6,7 @@ import (
 
 	"github.com/streadway/amqp"
 
+	"github.com/glendc/data-ingestion-challenge/pkg"
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
 )
 
@@ -191,17 +192,33 @@ func (cons *AMQPConsumer) ListenAndConsume(cb ConsumeCallback) {
 	forever := make(chan bool)
 
 	go func() {
-		var err *ConsumeError
+		var consumeError *ConsumeError
+		var unmarshalError error
+		var event pkg.Event
 
 		for data := range cons.deliveryChannel {
 			if data.ContentType != "application/json" {
 				data.Reject(false) // no requeue needed, as its content type is not recognised
+				log.Warningf("event was rejected: %q", unmarshalError)
 				continue
 			}
 
-			if err = cb(data.Body); err != nil {
-				data.Reject(err.Requeue) // consumer defines if we should requeue
-				log.Warningf("event was rejected: %q", err)
+			unmarshalError = json.Unmarshal(data.Body, &event)
+			if unmarshalError != nil {
+				data.Reject(false) // no requeue needed, as the data is invalid
+				log.Warningf("event was rejected: %q", unmarshalError)
+				continue
+			}
+			unmarshalError = event.Validate()
+			if unmarshalError != nil {
+				data.Reject(false) // no requeue needed, as the data is invalid
+				log.Warningf("event was rejected: %q", unmarshalError)
+				continue
+			}
+
+			if consumeError = cb(&event); consumeError != nil {
+				data.Reject(consumeError.Requeue) // consumer defines if we should requeue
+				log.Warningf("event was rejected by consumer: %q", consumeError)
 				continue
 			}
 
@@ -212,18 +229,4 @@ func (cons *AMQPConsumer) ListenAndConsume(cb ConsumeCallback) {
 
 	log.Infof("Listening to events. To exit press CTRL+C")
 	<-forever
-}
-
-// UnmarshalConsumption takes in raw JSON data freshly delivered via RabbitMQ,
-// and unwraps it into a given interface,
-// returning a non-requeue consumeError in case the data could not be unwrapped.
-func UnmarshalConsumption(raw []byte, data interface{}) *ConsumeError {
-	if err := json.Unmarshal(raw, data); err != nil {
-		return &ConsumeError{
-			Requeue: false, // No Requeue needed as package is not recognised by consumer
-			err:     err,
-		}
-	}
-
-	return nil
 }

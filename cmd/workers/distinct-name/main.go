@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/glendc/data-ingestion-challenge/pkg"
 	"github.com/glendc/data-ingestion-challenge/pkg/log"
 	"github.com/glendc/data-ingestion-challenge/pkg/rpc"
 
@@ -19,33 +20,12 @@ var (
 	redisDB       = flag.Int("db", 0, "redis instance db")
 )
 
-// event struct as this worker expects it
-type dailyEvent struct {
-	Username *string    `json:"username"`
-	Metric   *string    `json:"metric"`
-	Date     *time.Time `json:"date"`
-}
-
-// Validate the daily event
-func (e *dailyEvent) Validate() error {
-	if e.Username == nil {
-		return errors.New("required username property not given")
-	}
-	if e.Metric == nil {
-		return errors.New("required metric property not given")
-	}
-	if e.Date == nil {
-		return errors.New("required date property not given")
-	}
-
-	return nil
-}
-
-// Key returns the daily event data as a key
+// dailyIDFromEvent returns the daily event data as a key
 // using the format: MM.DD.<METRIC>.<USERNAME>
-func (e *dailyEvent) Key() string {
+func dailyIDFromEvent(e *pkg.Event) string {
+	date := time.Unix(*e.Timestamp, 0).UTC()
 	return fmt.Sprintf("%02d.%02d.%s.%s",
-		e.Date.Month(), e.Date.Day(), *e.Username, *e.Metric)
+		date.Month(), date.Day(), *e.Username, e.Metric)
 }
 
 // create a new redis runtime client
@@ -71,20 +51,8 @@ type runtime struct {
 
 // Consume raw incoming data as a daily event and record it
 // see runtime::Record for more information
-func (rt *runtime) Consume(raw []byte) *rpc.ConsumeError {
-	var event dailyEvent
-	// try to unpack raw data as a daily event
-	if err := rpc.UnmarshalConsumption(raw, &event); err != nil {
-		return err
-	}
-
-	// validate data
-	if err := event.Validate(); err != nil {
-		// requeue is not required as this data is not valid
-		return rpc.NewConsumeError(err, false)
-	}
-
-	if err := rt.record(&event); err != nil {
+func (rt *runtime) Consume(event *pkg.Event) *rpc.ConsumeError {
+	if err := rt.record(event); err != nil {
 		// requeue is required as this is a mistake on our part
 		// perhaps another distinctName worker can handle this
 		// or we can try again later
@@ -101,14 +69,30 @@ func (rt *runtime) Close() error {
 
 // record a daily event into Redis, storing it up to 30 days
 // TODO:
+//  + Ensure operation is thread-safe
 //  + Merge events older then 30 days into a monthly bucket
 //  + Cleanup events that have been merged into a monthly bucket
-func (rt *runtime) record(event *dailyEvent) error {
-	cmd := rt.client.Incr(event.Key())
+func (rt *runtime) record(event *pkg.Event) error {
+	id := dailyIDFromEvent(event)
+	cmd := rt.client.Incr(id)
 	return cmd.Err()
 }
 
+// ensure given flags make sense
+func validateFlags() error {
+	if *redisAddress == "" {
+		return errors.New("redis instance's address not given, while this is required")
+	}
+	return nil
+}
+
 func main() {
+	err := validateFlags()
+	if err != nil {
+		flag.Usage()
+		log.Errorf("invalid flag: %q", err)
+	}
+
 	rt, err := newRuntime()
 	if err != nil {
 		log.Errorf("couldn't create redis runtime: %q", err)
