@@ -128,7 +128,7 @@ func (s *Server) String() string {
 	}
 
 	successRequests := s.requests - s.failedRequests
-	avgRespTime := s.computeAverageRespTime()
+	avgRespTime := s.computeAverageRespTime(successRequests)
 
 	return fmt.Sprintf(`{
 		"requests": {
@@ -190,11 +190,11 @@ func (s *Server) trackRequest(in *serverInput) {
 // computeAverageRespTime computes the average response time
 // it does so by taking into account all last N response times
 // where N is the number equal to the size of the buffer, capped at a maximum.
-func (s *Server) computeAverageRespTime() time.Duration {
+func (s *Server) computeAverageRespTime(sucRequests uint64) time.Duration {
 	var avgRespTime time.Duration
 	respSize := s.cfg.ResponseBufferSize
-	if uint64(respSize) > s.requests {
-		respSize = int(s.requests)
+	if uint64(respSize) > sucRequests {
+		respSize = int(sucRequests)
 	}
 
 	respIndex := s.respTimeBufferIndex - respSize
