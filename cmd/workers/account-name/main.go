@@ -14,7 +14,8 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// cmd redis-specific flags
+// cmd postgres-specific flags
+// see: init function for more information about each flag
 var (
 	pgAddress  string
 	pgUser     string
@@ -26,7 +27,9 @@ var (
 
 // Postgres SSL mode can be one of following
 // More info: https://godoc.org/github.com/lib/pq
-var sslModeEnum = []string{"disable", "require", "verify-ca", "verify-full"}
+var sslModeEnum = []string{sslModeDisable, "require", "verify-ca", "verify-full"}
+
+const sslModeDisable = "disable"
 
 // validate tablename via a regexp to prevent sql-injection attacks,
 // not required for arguments as they can use the available variable placeholders
@@ -172,6 +175,6 @@ func init() {
 	flag.StringVar(&pgDatabase, "db", "postgres", "postgres database")
 	flag.StringVar(&pgTable, "table", "accountNames",
 		"postgres table to use to store accountNames events")
-	flag.StringVar(&pgSSLMode, "ssl-mode", "disable",
+	flag.StringVar(&pgSSLMode, "ssl-mode", sslModeDisable,
 		fmt.Sprintf("ssl mode used to connect to postgreg %v", sslModeEnum))
 }

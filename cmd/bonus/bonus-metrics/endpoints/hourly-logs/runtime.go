@@ -23,6 +23,10 @@ func newRuntime() (*runtime, error) {
 	}
 	session.SetMode(mgo.Monotonic, true)
 
+	if err = session.Ping(); err != nil {
+		return nil, fmt.Errorf("couldn't ping mongo server: %q", err)
+	}
+
 	return &runtime{
 		session: session,
 	}, nil

@@ -17,6 +17,7 @@ import (
 )
 
 // Metric-Collector Specific Flags
+// see: init function for more information about each flag
 var (
 	port               int
 	responseBufferSize int

@@ -40,9 +40,9 @@ func (cfg *ServerConfig) WithRequestBufferSize(size int) *ServerConfig {
 
 // validate the ServerConfig properties
 func (cfg *ServerConfig) validate() error {
-	if cfg.ResponseBufferSize < 8 {
+	if cfg.ResponseBufferSize < 16 {
 		return fmt.Errorf(
-			"%d is an invalid ResponseBufferSize, should be at least 8",
+			"%d is an invalid ResponseBufferSize, should be at least 16",
 			cfg.ResponseBufferSize)
 	}
 	if cfg.RequestBufferSize < 1 {
@@ -55,21 +55,31 @@ func (cfg *ServerConfig) validate() error {
 
 // Server collect all metrics we want to track about a server
 type Server struct {
+	// request counters
 	requests       uint64
 	failedRequests uint64
 
+	// min, max, avg response times
 	minRespTime         time.Duration
 	maxRespTime         time.Duration
 	respTimeBuffer      []time.Duration
 	respTimeBufferIndex int
 	respStartTime       time.Time
 
+	// mutex to ensure that we're not modifying data, while outputting it,
+	// and vice versa.
 	mtx sync.Mutex
-	// constants given by user
 
+	// internal channel used by the server tracker coroutine
 	ch chan serverInput
 	// constants given by user
 	cfg *ServerConfig
+}
+
+// server metric input (used internally only)
+type serverInput struct {
+	RespTime time.Duration
+	Success  bool
 }
 
 // NewServer creates a metrics worker that is meant
@@ -149,12 +159,6 @@ func (s *Server) String() string {
 		s.maxRespTime.Seconds(),
 		avgRespTime.Seconds(),
 	)
-}
-
-// server metric input
-type serverInput struct {
-	RespTime time.Duration
-	Success  bool
 }
 
 // track a request, for most data we only care about successfull requests

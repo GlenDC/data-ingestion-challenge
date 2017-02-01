@@ -2,6 +2,31 @@
 
 My solution for a data ingestion challenge.
 
+## How to build
+
+You can build all services and workers as binaries in `./dir` using make:
+
+```
+$ make
+```
+
+Dependencies:
+
++ [Golang 1.7][golang];
+
+### Update vendor libraries
+
+All [Golang][golang] dependencies are stored in the vendor dir
+using [gvt][] and can be updated as follows:
+
+```
+$ gvt update --all
+```
+
+Dependencies:
+
++ [gvt][];
+
 ## How to run metric-collector cluster
 
 The easiest way to build and run the cluster during development is using make:
@@ -10,7 +35,10 @@ The easiest way to build and run the cluster during development is using make:
 $ make compose
 ```
 
-Note that this does depend on [docker-compose][] and a running [docker][] instance.
+Dependencies:
+
++ [docker-compose][];
++ running [docker][] instance;
 
 If all went well and the cluster is up and running,
 you can start sending events using [httpie][]:
@@ -41,6 +69,8 @@ Metrics can be obtained as JSON using [httpie][]:
 The docker-compose configuration is a very static setup and not meant for production use.
 For production I would probably use [k8s][] or [AWS-ECS][], depending on the project/organization.
 
+[golang]: http://golang.org
+[gvt]: https://github.com/FiloSottile/gvt
 [httpie]: http://httpie.org
 [docker-compose]: https://docs.docker.com/compose/
 [docker]: https://docker.com/

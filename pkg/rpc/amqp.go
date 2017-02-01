@@ -12,6 +12,7 @@ import (
 )
 
 // RabbitMQ specific flags
+// see: init function for more information about each flag
 var (
 	uri          string
 	exchangeName string
@@ -275,5 +276,6 @@ func (cons *AMQPConsumer) ListenAndConsume(cb ConsumeCallback) {
 func init() {
 	flag.StringVar(&uri, "uri", "amqp://guest:guest@localhost:5672/", "AMQP URI")
 	flag.StringVar(&exchangeName, "exchange", "metric-collector", "AMQP exchange name")
-	flag.DurationVar(&messageTTL, "message-ttl", time.Duration(time.Hour*24), "Message Time To Live (TTL)")
+	flag.DurationVar(&messageTTL, "message-ttl", time.Duration(time.Hour*24), "Message Time To Live (TTL), "+
+		"note that the this value has to be the same for all workers sharing the same queue")
 }

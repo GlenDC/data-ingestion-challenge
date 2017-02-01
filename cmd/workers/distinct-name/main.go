@@ -15,11 +15,13 @@ import (
 )
 
 // cmd redis-specific flags
+// see: init function for more information about each flag
 var (
-	redisAddress  string
-	redisPassword string
-	redisDB       int
-	mergeInterval time.Duration
+	redisAddress   string
+	redisPassword  string
+	redisDB        int
+	mergeInterval  time.Duration
+	mergerDisabled bool
 )
 
 // prefixes for/and keys used for redis storage
@@ -50,7 +52,7 @@ func newRuntime() (*runtime, error) {
 	})
 
 	if _, err := client.Ping().Result(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("couldn't ping redis server: %q", err)
 	}
 
 	return &runtime{
@@ -260,7 +262,9 @@ func main() {
 
 	// spawn merge job as coroutine
 	// collecting logs older then 30 days and merging them into a single bucket
-	go mergeJob(rt)
+	if !mergerDisabled {
+		go mergeJob(rt)
+	}
 
 	cfg := rpc.NewAMQPConsConfig().WithName("distinctName")
 	consumer, err := rpc.NewAMQPConsumer(cfg)
@@ -279,4 +283,6 @@ func init() {
 	flag.IntVar(&redisDB, "db", 0, "redis instance db")
 	flag.DurationVar(&mergeInterval, "merge-interval", time.Hour*24,
 		"Merge time interval on which it merges logs older then 30 days into a monthly bucket")
+	flag.BoolVar(&mergerDisabled, "disable-merger", false,
+		"don't run the async merger responsible for merging logs older than 30 days")
 }

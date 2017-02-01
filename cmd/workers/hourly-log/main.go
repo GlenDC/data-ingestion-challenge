@@ -14,12 +14,14 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-// cmd redis-specific flags
+// cmd mongo-specific flags
+// see: init function for more information about each flag
 var (
 	mgoAddress    string
 	mgoDatabase   string
 	mgoCollection string
 	gcInterval    time.Duration
+	gcDisabled    bool
 )
 
 // defines how long a record stored in this hourlyLog actually lives,
@@ -28,6 +30,7 @@ const recordTTL = time.Hour
 
 var cleanupSelector = bson.M{
 	pkg.EventTimestampID: bson.M{
+		// event is older than 1 hour (thus less than now - 1h)
 		"$lt": time.Now().UTC().Add(recordTTL * -1).Unix(),
 	},
 }
@@ -38,6 +41,10 @@ func newRuntime() (*runtime, error) {
 		return nil, fmt.Errorf("couldn't open mongo session: %q", err)
 	}
 	session.SetMode(mgo.Monotonic, true)
+
+	if err = session.Ping(); err != nil {
+		return nil, fmt.Errorf("couldn't ping mongo server: %q", err)
+	}
 
 	return &runtime{
 		session: session,
@@ -159,7 +166,9 @@ func main() {
 	defer rt.Close()
 
 	// cleanup job
-	go cleanupJob(rt)
+	if !gcDisabled {
+		go cleanupJob(rt)
+	}
 
 	cfg := rpc.NewAMQPConsConfig().WithName("hourlyLog")
 	consumer, err := rpc.NewAMQPConsumer(cfg)
@@ -178,4 +187,6 @@ func init() {
 	flag.StringVar(&mgoCollection, "collection", "hourly", "mongo db collection")
 	flag.DurationVar(&gcInterval, "gc-interval", time.Minute*30,
 		"Garbage Collector interval on which it deletes old logs")
+	flag.BoolVar(&gcDisabled, "disable-gc", false,
+		"disable the async worker responsible for cleaning up logs older than 1 hour")
 }

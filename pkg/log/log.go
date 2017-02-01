@@ -9,11 +9,12 @@ import (
 )
 
 // Logger specific flags
+// see: init function for more information about each flag
 var (
 	debug bool
 )
 
-// Infof logs info messages in verbose mode
+// Infof logs info messages in verbose mode (debug-only)
 func Infof(format string, args ...interface{}) {
 	if !debug {
 		return // only in debug mode
@@ -22,7 +23,7 @@ func Infof(format string, args ...interface{}) {
 	log.Printf(message("INFO", format), args...)
 }
 
-// Warningf logs an error that can be recovered from
+// Warningf logs an error that can be recovered from (debug-only)
 func Warningf(format string, args ...interface{}) {
 	if !debug {
 		return // only in debug mode

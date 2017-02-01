@@ -5,7 +5,7 @@ import (
 )
 
 // Producer defines an interface for the producing side of an RPC system
-// It's only required functionality is that it can dispatch data
+// Its only required functionality is that it has to dispatch data
 type Producer interface {
 	// Close any open connections and clean up
 	Close() error
