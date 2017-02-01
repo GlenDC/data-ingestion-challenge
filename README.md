@@ -26,6 +26,16 @@ Metric Collector Service metrics can be obtained as JSON using [httpie][]:
 $ http get $(docker-machine ip):3000/debug/var
 ```
 
+### Bonus
+
+Hourly-Logs Metrics such as averages can be obtained via the `bonus-metrics`
+service which runs on port `3001`.
+
+Metrics can be obtained as JSON using [httpie][]:
+
++ all metrics: `$ http get $(docker-machine ip):3001/metrics/hourly_logs/total`;
++ all per-user metrics: `$ http get $(docker-machine ip):3001/metrics/hourly_logs/per_user`;
+
 ### Warning
 
 The docker-compose configuration is a very static setup and not meant for production use.

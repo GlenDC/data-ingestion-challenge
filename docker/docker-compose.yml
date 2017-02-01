@@ -83,3 +83,19 @@ services:
       depends_on:
         - metric-collector
         - postgres
+    bonus-metrics:
+      build:
+        context: ../
+        dockerfile: ./docker/bonus-metrics
+      command:
+        - --mgo-address
+        - mongo:27017
+        - --port
+        - "3001"
+        - --debug
+      ports:
+        - "3001:3001"
+      hostname: bonus-metrics
+      restart: always
+      depends_on:
+        - mongo

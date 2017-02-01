@@ -1,0 +1,4 @@
+FROM alpine:3.5
+ADD bin/bonus-metrics /go/bin/bonus-metrics
+RUN apk add --update ca-certificates # Certificates for SSL
+ENTRYPOINT ["/go/bin/bonus-metrics"]
