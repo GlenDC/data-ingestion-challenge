@@ -1,0 +1,3 @@
+FROM christianbladescb/locustio
+
+ADD locust .

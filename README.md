@@ -27,7 +27,7 @@ Dependencies:
 
 + [gvt][];
 
-## How to run metric-collector cluster
+## How to run metric-collector cluster (using Docker Compose)
 
 The easiest way to build and run the cluster during development is using make:
 
@@ -51,7 +51,7 @@ $ http post $(docker-machine ip):3000/event \
 Metric Collector Service metrics can be obtained as JSON using [httpie][]:
 
 ```
-$ http get $(docker-machine ip):3000/debug/var
+$ http get $(docker-machine ip):3000/debug/vars
 ```
 
 ### Bonus
@@ -69,6 +69,23 @@ Metrics can be obtained as JSON using [httpie][]:
 The docker-compose configuration is a very static setup and not meant for production use.
 For production I would probably use [k8s][] or [AWS-ECS][], depending on the project/organization.
 
+## How to run Load Balance tests (using Locust and Docker Compose)
+
+Simplistic and local load balance tests can be run using [locust][] and [docker-compose][]:
+
+```
+$ make loadbalance-test
+```
+
+This composition uses 3 instances of each async worker, instead of just 1 instance.
+
+Once the Docker composition is up and running,
+you can visit the following local web page in your favorite browser:
+
+```
+$ open http://$(docker-machine ip):8010 # MacOS Terminal Command
+```
+
 [golang]: http://golang.org
 [gvt]: https://github.com/FiloSottile/gvt
 [httpie]: http://httpie.org
@@ -76,3 +93,4 @@ For production I would probably use [k8s][] or [AWS-ECS][], depending on the pro
 [docker]: https://docker.com/
 [k8s]: http://kubernetes.io
 [AWS-ECS]: http://aws.amazon.com/ecs/
+[locust]: http://locust.io

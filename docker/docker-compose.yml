@@ -17,7 +17,7 @@ services:
         - --uri
         - amqp://bunny:bunny@rabbit:5672/
         - --debug
-      hostname: mcservice
+      hostname: metric-collector
       restart: always
       depends_on:
         - rabbit
@@ -46,10 +46,10 @@ services:
       image: mongo:3
       hostname: mongo
       restart: always
-    worker-hourly-log:
+    worker-hourly-logs:
       build:
         context: ../
-        dockerfile: ./docker/worker-hourly-log
+        dockerfile: ./docker/worker-hourly-logs
       command:
         - --uri
         - amqp://bunny:bunny@rabbit:5672/
@@ -59,7 +59,7 @@ services:
         - 1h # no need to keep messages longer then 1 hour in the queue
              # as we only want to keep messages recored up to 1 hour
         - --debug
-      hostname: hourly-log
+      hostname: hourly-logs
       restart: always
       depends_on:
         - metric-collector

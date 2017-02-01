@@ -1,7 +1,7 @@
 BIN?=./bin
 GOENV?=GOOS=linux GOARCH=amd64
 
-workers = account-name distinct-name hourly-log
+workers = account-name distinct-name hourly-logs
 bonus = bonus-metrics
 
 default:
@@ -11,6 +11,10 @@ all: metric-collector $(workers) $(bonus)
 
 compose: all
 	docker-compose -f ./docker/docker-compose.yml up --build
+
+loadbalance-test: all
+	docker-compose -f ./docker/locust-compose.yml rm
+	docker-compose -f ./docker/locust-compose.yml up --build
 
 bin:
 	mkdir -p ${BIN} || true

@@ -1,0 +1,199 @@
+version: '2'
+services:
+    locust:
+      build:
+        context: ../
+        dockerfile: docker/locust
+      command:
+        - --locustfile
+        - locust/locustfile.py
+        - --host=http://metric-collector:3000
+        - --port=8010
+      ports:
+        - "8010:8010"
+      depends_on:
+        - metric-collector
+    rabbit:
+      image: rabbitmq:3.6
+      hostname: rabbit
+      ports:
+        - "5672:5672"
+      environment:
+        - RABBITMQ_DEFAULT_USER=bunny
+        - RABBITMQ_DEFAULT_PASS=bunny
+      restart: always
+    metric-collector:
+      build:
+        context: ../
+        dockerfile: ./docker/metric-collector
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+      hostname: metric-collector
+      restart: always
+      depends_on:
+        - rabbit
+      ports:
+        - "3000:3000"
+    redis:
+      image: redis:3
+      hostname: redis
+      restart: always
+    worker-distinct-name-1:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-distinct-name
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - redis:6379
+      hostname: distinct-name-1
+      restart: always
+      depends_on:
+        - metric-collector
+        - redis
+    worker-distinct-name-2:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-distinct-name
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - redis:6379
+      hostname: distinct-name-2
+      restart: always
+      depends_on:
+        - metric-collector
+        - redis
+    worker-distinct-name-3:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-distinct-name
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - redis:6379
+      hostname: distinct-name-3
+      restart: always
+      depends_on:
+        - metric-collector
+        - redis
+    mongo:
+      image: mongo:3
+      hostname: mongo
+      restart: always
+    worker-hourly-logs-1:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-hourly-logs
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - mongo:27017
+        - --message-ttl
+        - 1h # no need to keep messages longer then 1 hour in the queue
+             # as we only want to keep messages recored up to 1 hour
+      hostname: hourly-logs-1
+      restart: always
+      depends_on:
+        - metric-collector
+        - mongo
+    worker-hourly-logs-2:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-hourly-logs
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - mongo:27017
+        - --message-ttl
+        - 1h # no need to keep messages longer then 1 hour in the queue
+             # as we only want to keep messages recored up to 1 hour
+      hostname: hourly-logs-2
+      restart: always
+      depends_on:
+        - metric-collector
+        - mongo
+    worker-hourly-logs-3:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-hourly-logs
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - mongo:27017
+        - --message-ttl
+        - 1h # no need to keep messages longer then 1 hour in the queue
+             # as we only want to keep messages recored up to 1 hour
+      hostname: hourly-logs-3
+      restart: always
+      depends_on:
+        - metric-collector
+        - mongo
+    postgres:
+      image: postgres:9
+      hostname: postgres
+      restart: always
+    worker-account-name-1:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-account-name
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - postgres:5432
+      hostname: account-name-1
+      restart: always
+      depends_on:
+        - metric-collector
+        - postgres
+    worker-account-name-2:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-account-name
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - postgres:5432
+      hostname: account-name-2
+      restart: always
+      depends_on:
+        - metric-collector
+        - postgres
+    worker-account-name-3:
+      build:
+        context: ../
+        dockerfile: ./docker/worker-account-name
+      command:
+        - --uri
+        - amqp://bunny:bunny@rabbit:5672/
+        - --address
+        - postgres:5432
+      hostname: account-name-3
+      restart: always
+      depends_on:
+        - metric-collector
+        - postgres
+    bonus-metrics:
+      build:
+        context: ../
+        dockerfile: ./docker/bonus-metrics
+      command:
+        - --mgo-address
+        - mongo:27017
+        - --port
+        - "3001"
+      ports:
+        - "3001:3001"
+      hostname: bonus-metrics
+      restart: always
+      depends_on:
+        - mongo
